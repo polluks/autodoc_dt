@@ -36,6 +36,9 @@ install-iso: all
 multiview: all
 	multiview sample.autodoc
 
+check: all
+	multiview sample.autodoc
+
 source:
 	(cd .. && tar --transform "s,^autodoc,&.datatype," -cf $(SOURCEPATH)autodoc.datatype.tar autodoc)
 
