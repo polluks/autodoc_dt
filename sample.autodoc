@@ -1,0 +1,83 @@
+/****** autodoc.datatype/std/DT_MakeClass ******************************************************************
+*
+*   NAME
+*	Autodoc_New -- Create a new Autodoc datatype object.
+*
+*   SYNOPSIS
+*	Object *obj = NewObjectA(NULL, "autodoc.datatype", DTA_Name, name, TAG_DONE);
+*
+*   FUNCTION
+*	Creates a new Autodoc datatype object, initializing a memory pool
+*	for line layout. The underlying text.datatype superclass handles
+*	buffer management and rendering; this class only adds Autodoc
+*	aware line layout.
+*
+*   INPUTS
+*	name         - The name of the Autodoc file being viewed.
+*
+*   RESULT
+*	obj          - A new object, or NULL on failure.
+*
+*   EXAMPLE
+*	/*
+*	Object *obj = NewObjectA(NULL, "autodoc.datatype",
+*	                           DTA_Name, (IPTR)name,
+*	                           TAG_DONE);
+*	if (obj) DoMethod(obj, DTM_PROCLAYOUT, NULL);
+*	*/
+*
+*   NOTES
+*	Requires datatypes.library and text.datatype to be installed.
+*	Memory pool size is estimated from the buffer length.
+*
+*   BUGS
+*	None known.
+*
+*   SEE ALSO
+*	DT_MakeClass(), Autodoc_AsyncLayout()
+*
+******* autodoc.datatype/std/Autodoc_AsyncLayout ************************************************************
+*
+*   NAME
+*	Autodoc_AsyncLayout -- Lay out Autodoc text into line segments.
+*
+*   SYNOPSIS
+*	ULONG total = Autodoc_AsyncLayout(o, gpl);
+*
+*   FUNCTION
+*	Walks the Autodoc text buffer and builds a list of Line segments
+*	with appropriate fonts, styles and offsets. Section headings such
+*	as NAME, SYNOPSIS, FUNCTION, INPUTS, RESULT, EXAMPLE, NOTES, BUGS
+*	and SEE ALSO are rendered in bold. The module/function header line
+*	is also rendered in bold.
+*
+*	The scanner recognizes the Autodoc block start markers
+*	"/****** ", "****** ", "/****i* " (internal) and "/****o* "
+*	(obsolete), and the end marker of at least three asterisks at the
+*	start of a line, per the Autodoc Style Guide.
+*
+*   INPUTS
+*	o            - The Autodoc datatype object.
+*	gpl          - A gpLayout structure with layout parameters.
+*
+*   RESULT
+*	total        - The total number of rendered text lines.
+*
+*   NOTES
+*	Layout runs asynchronously; the datatype signals progress using
+*	DTA_Busy and DTA_Sync notifications.
+*
+*   BUGS
+*	The module/function header detection uses the first text line after
+*	the opening marker; very short files may not get a bold header.
+*
+*   SEE ALSO
+*	Autodoc_New(), DT_MakeClass()
+*
+************************************************************************************************************
+*
+*	Private notes:
+*		This file demonstrates the Autodoc format.
+*		See https://wiki.amigaos.net/wiki/Autodoc_Style_Guide
+*
+*/

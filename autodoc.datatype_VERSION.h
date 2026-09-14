@@ -1,0 +1,11 @@
+#ifndef AUTODOC_DATATYPE_VERSION_H
+#define AUTODOC_DATATYPE_VERSION_H
+
+#define VERSION 1
+#define REVISION 0
+#define VERSION_NUMBER 1
+#define REVISION_NUMBER 0
+#define VERSION_STRING  "$VER: autodoc 1.0 (14.09.26)\r\n"
+#define VERSTAG  "\0$VER: autodoc 1.0 (14.09.26)\r\n"
+
+#endif /* AUTODOC_DATATYPE_VERSION_H */
