@@ -33,9 +33,6 @@ install-iso: all
 	mkdir -p $(ISOPATH)MorphOS/Classes/Datatypes
 	cp autodoc.datatype $(ISOPATH)MorphOS/Classes/Datatypes/autodoc.datatype
 
-multiview: all
-	multiview sample.autodoc
-
 check: all
 	multiview sample.autodoc
 
