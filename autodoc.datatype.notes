@@ -21,6 +21,7 @@ Features:
   - Recognizes NAME, SYNOPSIS, FUNCTION, INPUTS, RESULT, EXAMPLE,
     NOTES, BUGS, SEE ALSO sections.
   - Tabulator size honors the TABSIZE environment variable.
+  - Ignores form feed (0x0C) page separators.
 
 Installation:
   Place autodoc.datatype in SYS:Classes/Datatypes (AmigaOS/AROS) or

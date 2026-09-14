@@ -22,7 +22,11 @@
 #define AD_SECT_BUGS       8
 #define AD_SECT_SEEALSO    9
 
-/* --- copy of helpers from autodoc_class.c --- */
+/* --- copy of helpers from autodoc_class.c ---
+ * Keep in sync with autodoc_class.c (pure parsing logic, no Amiga calls).
+ */
+
+#define IS_DT_SPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\f')
 
 static const char * const section_names[] =
 {
@@ -41,19 +45,19 @@ static char *SkipAutodocDecoration(char *line)
 {
     char *p = line;
 
-    while (*p == ' ' || *p == '\t')
+    while (IS_DT_SPACE(*p))
         p++;
 
     while (*p == '*' || *p == '/')
         p++;
 
-    while (*p == ' ' || *p == '\t')
+    while (IS_DT_SPACE(*p))
         p++;
 
-    if (*p == '-' && (p[1] == ' ' || p[1] == '\t' || p[1] == '\0'))
+    if (*p == '-' && (IS_DT_SPACE(p[1]) || p[1] == '\0'))
     {
         p++;
-        while (*p == ' ' || *p == '\t')
+        while (IS_DT_SPACE(*p))
             p++;
     }
 
@@ -62,7 +66,7 @@ static char *SkipAutodocDecoration(char *line)
 
 static int TrimTrailingDecoration(char *p, int len)
 {
-    while (len > 0 && (p[len - 1] == '*' || p[len - 1] == ' ' || p[len - 1] == '\t'))
+    while (len > 0 && (p[len - 1] == '*' || IS_DT_SPACE(p[len - 1])))
         len--;
     return len;
 }
@@ -75,8 +79,14 @@ static int IsAutodocStart(const char *line, int len)
     if (len < 8)
         return 0;
 
-    if (strncmp(line, "/****i* ", 8) == 0) return 1;
-    if (strncmp(line, "/****o* ", 8) == 0) return 1;
+    while ((p - line) < len && IS_DT_SPACE(*p))
+        p++;
+
+    if ((p - line) >= len)
+        return 0;
+
+    if (strncmp(p, "/****i* ", 8) == 0) return 1;
+    if (strncmp(p, "/****o* ", 8) == 0) return 1;
 
     if (*p == '/')
         p++;
@@ -86,11 +96,11 @@ static int IsAutodocStart(const char *line, int len)
     if (stars < 6)
         return 0;
 
-    if (*p != ' ')
+    if (!IS_DT_SPACE(*p))
         return 0;
 
     p++;
-    while (*p == ' ' || *p == '\t' || *p == '*')
+    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '*')
         p++;
 
     return (*p != '\0');
@@ -101,12 +111,15 @@ static int IsAutodocEnd(const char *line, int len)
     const char *p = line;
     int stars = 0;
 
+    while (IS_DT_SPACE(*p))
+        p++;
+
     while (*p == '*') { stars++; p++; }
 
     if (stars < 3)
         return 0;
 
-    while (*p == ' ' || *p == '\t' || *p == '/')
+    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '/')
         p++;
 
     return (*p == '\0');
@@ -136,6 +149,9 @@ static void test_start_markers(void)
     CHECK(IsAutodocStart("****** exec/AddTail", 17), "start: ******");
     CHECK(IsAutodocStart("/****i* internal/Thing", 20), "start internal");
     CHECK(IsAutodocStart("/****o* obselete/Thing", 20), "start obsolete");
+    CHECK(IsAutodocStart("\f****** exec/AddTail", 19), "start: form feed before");
+    CHECK(IsAutodocStart("/******\texec/AddTail", 19), "start: tab after stars");
+    CHECK(IsAutodocStart("\f/****** exec/AddTail", 20), "start: FF + slash marker");
     CHECK(!IsAutodocStart("   *   NAME", 10), "not start: indented");
     CHECK(!IsAutodocStart("*   NAME", 8), "not start: plain *");
     CHECK(!IsAutodocStart("", 0), "not start: empty");
@@ -145,6 +161,7 @@ static void test_end_markers(void)
 {
     CHECK(IsAutodocEnd("***", 3), "end: ***");
     CHECK(IsAutodocEnd("*********************", 8), "end: long stars");
+    CHECK(IsAutodocEnd("\f***", 4), "end: form feed before");
     CHECK(!IsAutodocEnd("*   NAME", 8), "not end: * NAME");
     CHECK(!IsAutodocEnd("** ", 3), "not end: 2 stars");
     CHECK(!IsAutodocEnd("", 0), "not end: empty");
@@ -178,6 +195,19 @@ static void test_decoration(void)
     strcpy(buf, "*\t-- background --");
     r = SkipAutodocDecoration(buf);
     CHECK(strcmp(r, "-- background --") == 0, "decor: preserves -- text");
+
+    strcpy(buf, "*\f   NAME");
+    r = SkipAutodocDecoration(buf);
+    CHECK(strcmp(r, "NAME") == 0, "decor: FF after asterisk");
+
+    strcpy(buf, "\f*   SYNOPSIS");
+    r = SkipAutodocDecoration(buf);
+    CHECK(strcmp(r, "SYNOPSIS") == 0, "decor: FF before asterisk");
+
+    strcpy(buf, "*\tFF body\f");
+    r = SkipAutodocDecoration(buf);
+    CHECK(strncmp(r, "FF body", 7) == 0, "decor: FF in content");
+    CHECK(TrimTrailingDecoration(r, strlen(r)) == 7, "decor: trailing FF trimmed");
 
     strcpy(buf, "  *   SYNOPSIS");
     r = SkipAutodocDecoration(buf);
