@@ -116,12 +116,18 @@ static VARARGS IPTR NotifyAttrChanges(Object *o, VOID *ginfo, ULONG flags, ULONG
  *   "* text", "*   HEADING", "*\tbody", "**  text", "*- text", "* - text".
  * Returns a pointer to the actual content within the line.
  */
+/* Whitespace for decoration stripping. A form feed (0x0C, '\f') is a
+ * classic Autodoc page separator and must be skipped like any other
+ * space so it never renders as a glyph.
+ */
+#define IS_DT_SPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\f')
+
 static STRPTR SkipAutodocDecoration(STRPTR line)
 {
     STRPTR p = line;
 
     /* Skip leading whitespace */
-    while (*p == ' ' || *p == '\t')
+    while (IS_DT_SPACE(*p))
         p++;
 
     /* Skip the comment opener: '*' and '/' */
@@ -129,15 +135,15 @@ static STRPTR SkipAutodocDecoration(STRPTR line)
         p++;
 
     /* Skip whitespace */
-    while (*p == ' ' || *p == '\t')
+    while (IS_DT_SPACE(*p))
         p++;
 
     /* An optional '-' decoration marker, only when followed by whitespace
      * (so "-- background --" or "-foo" text is preserved) */
-    if (*p == '-' && (p[1] == ' ' || p[1] == '\t' || p[1] == '\0'))
+    if (*p == '-' && (IS_DT_SPACE(p[1]) || p[1] == '\0'))
     {
         p++;
-        while (*p == ' ' || *p == '\t')
+        while (IS_DT_SPACE(*p))
             p++;
     }
 
@@ -151,7 +157,7 @@ static STRPTR SkipAutodocDecoration(STRPTR line)
  */
 static LONG TrimTrailingDecoration(STRPTR p, LONG len)
 {
-    while (len > 0 && (p[len - 1] == '*' || p[len - 1] == ' ' || p[len - 1] == '\t'))
+    while (len > 0 && (p[len - 1] == '*' || IS_DT_SPACE(p[len - 1])))
         len--;
     return len;
 }
@@ -174,10 +180,17 @@ static BOOL IsAutodocStart(CONST_STRPTR line, ULONG len)
     if (len < 8)
         return FALSE;
 
+    /* Skip leading whitespace (a form feed may precede the marker) */
+    while ((ULONG)(p - line) < len && IS_DT_SPACE(*p))
+        p++;
+
+    if ((ULONG)(p - line) >= len)
+        return FALSE;
+
     /* Internal / obsolete forms */
-    if (strncmp(line, "/****i* ", 8) == 0)
+    if (strncmp(p, "/****i* ", 8) == 0)
         return TRUE;
-    if (strncmp(line, "/****o* ", 8) == 0)
+    if (strncmp(p, "/****o* ", 8) == 0)
         return TRUE;
 
     /* Optional leading '/' then a run of asterisks */
@@ -193,12 +206,12 @@ static BOOL IsAutodocStart(CONST_STRPTR line, ULONG len)
     if (stars < 6)
         return FALSE;
 
-    /* Must be followed by a space and some content */
-    if (*p != ' ')
+    /* Must be followed by a space (or tab/FF) and some content */
+    if (!IS_DT_SPACE(*p))
         return FALSE;
 
     p++;
-    while (*p == ' ' || *p == '\t' || *p == '*')
+    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '*')
         p++;
 
     return (*p != '\0');
@@ -216,6 +229,11 @@ static BOOL IsAutodocEnd(CONST_STRPTR line, ULONG len)
     CONST_STRPTR p = line;
     ULONG stars = 0;
 
+    /* Skip leading whitespace, incl. a possible form feed */
+
+    while (IS_DT_SPACE(*p))
+        p++;
+
     while (*p == '*')
     {
         stars++;
@@ -225,7 +243,7 @@ static BOOL IsAutodocEnd(CONST_STRPTR line, ULONG len)
     if (stars < 3)
         return FALSE;
 
-    while (*p == ' ' || *p == '\t' || *p == '/')
+    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '/')
         p++;
 
     return (*p == '\0');
