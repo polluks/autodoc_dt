@@ -41,24 +41,22 @@ static const int section_types[] =
     AD_SECT_SEEALSO
 };
 
-static char *SkipAutodocDecoration(char *line)
+static char *SkipAutodocDecoration(char *line, int len)
 {
     char *p = line;
+    int n = 0;
 
-    while (IS_DT_SPACE(*p))
-        p++;
+    while (n < len && IS_DT_SPACE(*p)) { p++; n++; }
 
-    while (*p == '*' || *p == '/')
-        p++;
+    while (n < len && (*p == '*' || *p == '/')) { p++; n++; }
 
-    while (IS_DT_SPACE(*p))
-        p++;
+    while (n < len && IS_DT_SPACE(*p)) { p++; n++; }
 
-    if (*p == '-' && (IS_DT_SPACE(p[1]) || p[1] == '\0'))
+    if (n < len && *p == '-' && (n + 1 >= len || IS_DT_SPACE(p[1])))
     {
         p++;
-        while (IS_DT_SPACE(*p))
-            p++;
+        n++;
+        while (n < len && IS_DT_SPACE(*p)) { p++; n++; }
     }
 
     return p;
@@ -75,64 +73,74 @@ static int IsAutodocStart(const char *line, int len)
 {
     const char *p = line;
     int stars = 0;
+    int n = 0;
 
     if (len < 8)
         return 0;
 
-    while ((p - line) < len && IS_DT_SPACE(*p))
-        p++;
+    while (n < len && IS_DT_SPACE(*p)) { p++; n++; }
 
-    if ((p - line) >= len)
+    if (n >= len)
         return 0;
 
-    if (strncmp(p, "/****i* ", 8) == 0) return 1;
-    if (strncmp(p, "/****o* ", 8) == 0) return 1;
+    if (n + 8 <= len)
+    {
+        if (strncmp(p, "/****i* ", 8) == 0) return 1;
+        if (strncmp(p, "/****o* ", 8) == 0) return 1;
+    }
 
-    if (*p == '/')
-        p++;
+    if (*p == '/') { p++; n++; }
 
-    while (*p == '*') { stars++; p++; }
+    while (n < len && *p == '*') { stars++; p++; n++; }
 
     if (stars < 6)
         return 0;
 
-    if (!IS_DT_SPACE(*p))
+    if (n >= len || !IS_DT_SPACE(*p))
         return 0;
-
     p++;
-    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '*')
-        p++;
+    n++;
 
-    return (*p != '\0');
+    while (n < len && (*p == ' ' || *p == '\t' || *p == '\f' || *p == '*'))
+    {
+        p++;
+        n++;
+    }
+
+    return (n < len);
 }
 
 static int IsAutodocEnd(const char *line, int len)
 {
     const char *p = line;
     int stars = 0;
+    int n = 0;
 
-    while (IS_DT_SPACE(*p))
-        p++;
+    while (n < len && IS_DT_SPACE(*p)) { p++; n++; }
 
-    while (*p == '*') { stars++; p++; }
+    while (n < len && *p == '*') { stars++; p++; n++; }
 
     if (stars < 3)
         return 0;
 
-    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '/')
+    while (n < len && (*p == ' ' || *p == '\t' || *p == '\f' || *p == '/'))
+    {
         p++;
+        n++;
+    }
 
-    return (*p == '\0');
+    return (n == len);
 }
 
-static int ClassifyHeading(const char *text)
+static int ClassifyHeading(const char *text, int len)
 {
     int s;
-    if (text[0] == '\0')
-        return AD_SECT_NONE;
     for (s = 0; section_names[s] != NULL; s++)
-        if (strcmp(text, section_names[s]) == 0)
+    {
+        int need = (int)strlen(section_names[s]);
+        if (len == need && strncmp(text, section_names[s], need) == 0)
             return section_types[s];
+    }
     return AD_SECT_NONE;
 }
 
@@ -173,69 +181,69 @@ static void test_decoration(void)
     char *r;
 
     strcpy(buf, "*   NAME");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "NAME") == 0, "decor: *   NAME -> NAME");
 
     strcpy(buf, "*\tbody text");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "body text") == 0, "decor: *\\tbody text");
 
     strcpy(buf, "**  text after");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "text after") == 0, "decor: **  text");
 
     strcpy(buf, "*-  decor");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "decor") == 0, "decor: *-  decor");
 
     strcpy(buf, "* - decor too");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "decor too") == 0, "decor: * - decor too");
 
     strcpy(buf, "*\t-- background --");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "-- background --") == 0, "decor: preserves -- text");
 
     strcpy(buf, "*\f   NAME");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "NAME") == 0, "decor: FF after asterisk");
 
     strcpy(buf, "\f*   SYNOPSIS");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "SYNOPSIS") == 0, "decor: FF before asterisk");
 
     strcpy(buf, "*\tFF body\f");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strncmp(r, "FF body", 7) == 0, "decor: FF in content");
     CHECK(TrimTrailingDecoration(r, strlen(r)) == 7, "decor: trailing FF trimmed");
 
     strcpy(buf, "  *   SYNOPSIS");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "SYNOPSIS") == 0, "decor: indented *   SYNOPSIS");
 
     strcpy(buf, "/****** autodoc.datatype/std/DT_MakeClass *****************");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strncmp(r, "autodoc.datatype/std/DT_MakeClass", 33) == 0, "decor: header line leading");
 
     strcpy(buf, "plain text");
-    r = SkipAutodocDecoration(buf);
+    r = SkipAutodocDecoration(buf, (int)strlen(buf));
     CHECK(strcmp(r, "plain text") == 0, "decor: plain text preserved");
 }
 
 static void test_headings(void)
 {
-    CHECK(ClassifyHeading("NAME") == AD_SECT_NAME, "heading NAME");
-    CHECK(ClassifyHeading("SYNOPSIS") == AD_SECT_SYNOPSIS, "heading SYNOPSIS");
-    CHECK(ClassifyHeading("FUNCTION") == AD_SECT_FUNCTION, "heading FUNCTION");
-    CHECK(ClassifyHeading("INPUTS") == AD_SECT_INPUTS, "heading INPUTS");
-    CHECK(ClassifyHeading("RESULT") == AD_SECT_RESULT, "heading RESULT");
-    CHECK(ClassifyHeading("EXAMPLE") == AD_SECT_EXAMPLE, "heading EXAMPLE");
-    CHECK(ClassifyHeading("NOTES") == AD_SECT_NOTES, "heading NOTES");
-    CHECK(ClassifyHeading("BUGS") == AD_SECT_BUGS, "heading BUGS");
-    CHECK(ClassifyHeading("SEE ALSO") == AD_SECT_SEEALSO, "heading SEE ALSO");
-    CHECK(ClassifyHeading("StealMoney -- steal") == AD_SECT_NONE, "not heading: content");
-    CHECK(ClassifyHeading("") == AD_SECT_NONE, "not heading: empty");
-    CHECK(ClassifyHeading("NOTE") == AD_SECT_NONE, "not heading: NOTE plural");
+    CHECK(ClassifyHeading("NAME", (int)strlen("NAME")) == AD_SECT_NAME, "heading NAME");
+    CHECK(ClassifyHeading("SYNOPSIS", (int)strlen("SYNOPSIS")) == AD_SECT_SYNOPSIS, "heading SYNOPSIS");
+    CHECK(ClassifyHeading("FUNCTION", (int)strlen("FUNCTION")) == AD_SECT_FUNCTION, "heading FUNCTION");
+    CHECK(ClassifyHeading("INPUTS", (int)strlen("INPUTS")) == AD_SECT_INPUTS, "heading INPUTS");
+    CHECK(ClassifyHeading("RESULT", (int)strlen("RESULT")) == AD_SECT_RESULT, "heading RESULT");
+    CHECK(ClassifyHeading("EXAMPLE", (int)strlen("EXAMPLE")) == AD_SECT_EXAMPLE, "heading EXAMPLE");
+    CHECK(ClassifyHeading("NOTES", (int)strlen("NOTES")) == AD_SECT_NOTES, "heading NOTES");
+    CHECK(ClassifyHeading("BUGS", (int)strlen("BUGS")) == AD_SECT_BUGS, "heading BUGS");
+    CHECK(ClassifyHeading("SEE ALSO", (int)strlen("SEE ALSO")) == AD_SECT_SEEALSO, "heading SEE ALSO");
+    CHECK(ClassifyHeading("StealMoney -- steal", (int)strlen("StealMoney -- steal")) == AD_SECT_NONE, "not heading: content");
+    CHECK(ClassifyHeading("", (int)strlen("")) == AD_SECT_NONE, "not heading: empty");
+    CHECK(ClassifyHeading("NOTE", (int)strlen("NOTE")) == AD_SECT_NONE, "not heading: NOTE plural");
 }
 
 static void test_line_walker(void)
@@ -270,7 +278,7 @@ static void test_line_walker(void)
 
         if (IsAutodocStart(line, len)) {
             /* module/function title lives on the marker line */
-            char *title = SkipAutodocDecoration(line);
+            char *title = SkipAutodocDecoration(line, len);
             int tlen = TrimTrailingDecoration(title, len - (int)(title - line));
             inAutodoc = 1; cur = AD_SECT_NONE;
             if (tlen > 0) {
@@ -280,8 +288,8 @@ static void test_line_walker(void)
         } else if (inAutodoc && IsAutodocEnd(line, len)) {
             inAutodoc = 0; cur = AD_SECT_NONE;
         } else if (inAutodoc) {
-            content = SkipAutodocDecoration(line);
-            sect = ClassifyHeading(content);
+            content = SkipAutodocDecoration(line, len);
+            sect = ClassifyHeading(content, (int)strlen(content));
             if (sect != AD_SECT_NONE) {
                 cur = sect;
                 if (sect == AD_SECT_NAME) sawName = 1;
@@ -351,7 +359,7 @@ static void test_sample_file(void)
         lineNo++;
 
         if (IsAutodocStart(line, len)) {
-            char *title = SkipAutodocDecoration(line);
+            char *title = SkipAutodocDecoration(line, len);
             int tlen = TrimTrailingDecoration(title, len - (int)(title - line));
             inAutodoc = 1; cur = AD_SECT_NONE;
             if (tlen > 0) {
@@ -363,8 +371,8 @@ static void test_sample_file(void)
         } else if (inAutodoc && IsAutodocEnd(line, len)) {
             inAutodoc = 0; cur = AD_SECT_NONE;
         } else if (inAutodoc) {
-            content = SkipAutodocDecoration(line);
-            sect = ClassifyHeading(content);
+            content = SkipAutodocDecoration(line, len);
+            sect = ClassifyHeading(content, (int)strlen(content));
             if (sect != AD_SECT_NONE) {
                 cur = sect;
                 sections[sect]++;
@@ -398,6 +406,49 @@ static void test_sample_file(void)
     free(doc);
 }
 
+static void test_no_termination(void)
+{
+    /* The real parser segments point into a raw TDTA buffer with no
+     * guaranteed trailing NUL, so every helper must stay inside the
+     * (line, len) window. Feed exactly len bytes with no terminator:
+     * any read past the window trips ASan/BoundsChecker here. */
+    const struct
+    {
+        const char *s;
+        int wantS;
+        int wantE;
+    } cases[] =
+    {
+        { "/****** exec/AddTail", 1, 0 },
+        { "************",         0, 1 },
+        { "*   NAME",             0, 0 },
+        { "plain text line",      0, 0 },
+    };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])); i++)
+    {
+        int n = (int)strlen(cases[i].s);
+        char *buf = malloc(n + 1);
+
+        memcpy(buf, cases[i].s, n);
+
+        CHECK(IsAutodocStart(buf, n) == cases[i].wantS, "no-term: start in bounds");
+        CHECK(IsAutodocEnd(buf, n) == cases[i].wantE, "no-term: end in bounds");
+
+        {
+            char *content = SkipAutodocDecoration(buf, n);
+            int rest = n - (int)(content - buf);
+
+            CHECK(rest >= 0, "no-term: decor stays in bounds");
+            if (rest > 0)
+                CHECK(TrimTrailingDecoration(content, rest) <= rest, "no-term: trim stays in bounds");
+        }
+
+        free(buf);
+    }
+}
+
 int main(void)
 {
     printf("=== Autodoc parsing logic tests ===\n");
@@ -407,6 +458,7 @@ int main(void)
     test_headings();
     test_line_walker();
     test_sample_file();
+    test_no_termination();
 
     if (failures == 0)
         printf("\nAll tests passed.\n");

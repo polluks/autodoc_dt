@@ -122,29 +122,44 @@ static VARARGS IPTR NotifyAttrChanges(Object *o, VOID *ginfo, ULONG flags, ULONG
  */
 #define IS_DT_SPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\f')
 
-static STRPTR SkipAutodocDecoration(STRPTR line)
+static STRPTR SkipAutodocDecoration(STRPTR line, LONG len)
 {
     STRPTR p = line;
+    LONG n = 0;
 
     /* Skip leading whitespace */
-    while (IS_DT_SPACE(*p))
-        p++;
-
-    /* Skip the comment opener: '*' and '/' */
-    while (*p == '*' || *p == '/')
-        p++;
-
-    /* Skip whitespace */
-    while (IS_DT_SPACE(*p))
-        p++;
-
-    /* An optional '-' decoration marker, only when followed by whitespace
-     * (so "-- background --" or "-foo" text is preserved) */
-    if (*p == '-' && (IS_DT_SPACE(p[1]) || p[1] == '\0'))
+    while (n < len && IS_DT_SPACE(*p))
     {
         p++;
-        while (IS_DT_SPACE(*p))
+        n++;
+    }
+
+    /* Skip the comment opener: '*' and '/' */
+    while (n < len && (*p == '*' || *p == '/'))
+    {
+        p++;
+        n++;
+    }
+
+    /* Skip whitespace */
+    while (n < len && IS_DT_SPACE(*p))
+    {
+        p++;
+        n++;
+    }
+
+    /* An optional '-' decoration marker, only when followed by whitespace
+     * (so "-- background --" or "-foo" text is preserved). At the end of
+     * the line a '-' is treated as decoration. */
+    if (n < len && *p == '-' && (n + 1 >= len || IS_DT_SPACE(p[1])))
+    {
+        p++;
+        n++;
+        while (n < len && IS_DT_SPACE(*p))
+        {
             p++;
+            n++;
+        }
     }
 
     return p;
@@ -176,45 +191,60 @@ static BOOL IsAutodocStart(CONST_STRPTR line, ULONG len)
 {
     CONST_STRPTR p = line;
     ULONG stars = 0;
+    ULONG n = 0;
 
     if (len < 8)
         return FALSE;
 
     /* Skip leading whitespace (a form feed may precede the marker) */
-    while ((ULONG)(p - line) < len && IS_DT_SPACE(*p))
+    while ((n < len) && IS_DT_SPACE(*p))
+    {
         p++;
+        n++;
+    }
 
-    if ((ULONG)(p - line) >= len)
+    if (n >= len)
         return FALSE;
 
     /* Internal / obsolete forms */
-    if (strncmp(p, "/****i* ", 8) == 0)
-        return TRUE;
-    if (strncmp(p, "/****o* ", 8) == 0)
-        return TRUE;
+    if (n + 8 <= len)
+    {
+        if (strncmp(p, "/****i* ", 8) == 0)
+            return TRUE;
+        if (strncmp(p, "/****o* ", 8) == 0)
+            return TRUE;
+    }
 
     /* Optional leading '/' then a run of asterisks */
     if (*p == '/')
+    {
         p++;
+        n++;
+    }
 
-    while (*p == '*')
+    while ((n < len) && (*p == '*'))
     {
         stars++;
         p++;
+        n++;
     }
 
     if (stars < 6)
         return FALSE;
 
-    /* Must be followed by a space (or tab/FF) and some content */
-    if (!IS_DT_SPACE(*p))
+    /* Must be followed by whitespace (space, tab or form feed) and content */
+    if (n >= len || !IS_DT_SPACE(*p))
         return FALSE;
-
     p++;
-    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '*')
-        p++;
+    n++;
 
-    return (*p != '\0');
+    while ((n < len) && (*p == ' ' || *p == '\t' || *p == '\f' || *p == '*'))
+    {
+        p++;
+        n++;
+    }
+
+    return (n < len);
 }
 
 /**************************************************************************************************/
@@ -228,43 +258,48 @@ static BOOL IsAutodocEnd(CONST_STRPTR line, ULONG len)
 {
     CONST_STRPTR p = line;
     ULONG stars = 0;
+    ULONG n = 0;
 
     /* Skip leading whitespace, incl. a possible form feed */
-
-    while (IS_DT_SPACE(*p))
+    while ((n < len) && IS_DT_SPACE(*p))
+    {
         p++;
+        n++;
+    }
 
-    while (*p == '*')
+    while ((n < len) && (*p == '*'))
     {
         stars++;
         p++;
+        n++;
     }
 
     if (stars < 3)
         return FALSE;
 
-    while (*p == ' ' || *p == '\t' || *p == '\f' || *p == '/')
+    while ((n < len) && (*p == ' ' || *p == '\t' || *p == '\f' || *p == '/'))
+    {
         p++;
+        n++;
+    }
 
-    return (*p == '\0');
+    return (n == len);
 }
 
 /**************************************************************************************************/
 
 /* Look up a decoded heading in the section keyword table.
- * Returns the section type, or AD_SECT_NONE if not a heading.
+ * The segment is NOT NUL-terminated, so compare against the keyword
+ * length explicitly. Returns the section type, or AD_SECT_NONE when
+ * the text is not exactly a heading.
  */
-static ULONG ClassifyHeading(CONST_STRPTR text)
+static ULONG ClassifyHeading(CONST_STRPTR text, LONG len)
 {
-    LONG len = strlen(text);
-
-    /* Allow an optional trailing '(' etc., but require no other chars */
-    if (len == 0)
-        return AD_SECT_NONE;
-
-    for (int s = 0; section_names[s] != NULL; s++)
+    for (LONG s = 0; section_names[s] != NULL; s++)
     {
-        if (strcmp(text, section_names[s]) == 0)
+        LONG need = (LONG)strlen(section_names[s]);
+
+        if (len == need && strncmp(text, section_names[s], need) == 0)
             return section_types[s];
     }
 
@@ -395,6 +430,8 @@ static IPTR Autodoc_ProcLayout(Class *cl, Object *o, struct gpLayout *msg)
 /* The main layout routine.
  *
  * Walks the Autodoc text buffer and builds a line list.
+ * Note that the buffer is NOT NUL-terminated, so every parser call is
+ * bounded by the length of the current physical line.
  *  - Inside an Autodoc block, section headings (NAME, SYNOPSIS, ...)
  *    and the module/function title line are rendered bold.
  *  - "/****** ... ***" block decorations and the leading "* " of each
@@ -415,7 +452,6 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
 
     BOOL abort = FALSE;
     BOOL inAutodoc = FALSE;
-    ULONG currentSection = AD_SECT_NONE;
 
     struct TextAttr *tattr;
     struct TextFont *font;
@@ -426,11 +462,9 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
     STRPTR buffer;
     STRPTR title;
 
-    ULONG offset = 0;
     ULONG swidth;
     struct Line *line;
     ULONG yoffset = 0;
-    ULONG linelength = 0;
     ULONG max_linelength = 0;
     UBYTE fgpen = 1;
     UBYTE bgpen = 0;
@@ -457,7 +491,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                    DTA_Domain, (IPTR)&domain, DTA_ObjName, (IPTR)&title,
                    TDTA_Buffer, (IPTR)&buffer, TDTA_BufferLen, (IPTR)&bufferlen,
                    TDTA_LineList, (IPTR)&linelist, TDTA_WordWrap, (IPTR)&wrap,
-                   TAG_DONE) == 12)
+                   TAG_DONE) == 8)
     {
         ObtainSemaphore(&(si->si_Lock));
 
@@ -474,12 +508,10 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                 while ((line = (struct Line *)RemHead(linelist)))
                     FreePooled(data->Pool, line, sizeof(struct Line));
 
-                offset     = 0;
                 lineStart  = 0;
                 total      = 0;
                 yoffset    = 0;
                 inAutodoc  = FALSE;
-                currentSection = AD_SECT_NONE;
 
                 for (i = 0; (i < (ULONG)bufferlen) && (bsig == 0) && !abort; i++)
                 {
@@ -499,16 +531,13 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                      * close the previous block and open the next one. */
                     if (IsAutodocStart(p, len))
                     {
-                        STRPTR content = SkipAutodocDecoration(p);
-                        LONG titleLen;
-
-                        inAutodoc = TRUE;
-                        currentSection = AD_SECT_NONE;
-
-                        titleLen = (LONG)(len - (content - p));
+                        STRPTR content = SkipAutodocDecoration(p, len);
+                        LONG titleLen = len - (LONG)(content - p);
                         if (titleLen < 0)
                             titleLen = 0;
                         titleLen = TrimTrailingDecoration(content, titleLen);
+
+                        inAutodoc = TRUE;
 
                         if (titleLen > 0)
                         {
@@ -529,9 +558,8 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                                 line->ln_Style   = FS_BOLD;
                                 line->ln_Data    = NULL;
 
-                                linelength = line->ln_Width;
-                                if (linelength > max_linelength)
-                                    max_linelength = linelength;
+                                if (swidth > max_linelength)
+                                    max_linelength = swidth;
 
                                 AddTail(linelist, (struct Node *)line);
 
@@ -545,7 +573,6 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                         }
 
                         lineStart = i + 1;
-                        offset = 0;
                         continue;
                     }
 
@@ -553,40 +580,29 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                     if (inAutodoc && IsAutodocEnd(p, len))
                     {
                         inAutodoc = FALSE;
-                        currentSection = AD_SECT_NONE;
                         lineStart = i + 1;
-                        offset = 0;
                         continue;
                     }
 
                     if (inAutodoc)
                     {
                         /* Point at the content, past the decoration */
-                        STRPTR content = SkipAutodocDecoration(p);
-                        ULONG styleFlags = FS_NORMAL;
-                        ULONG sect;
-                        LONG contentLen;
+                        STRPTR content = SkipAutodocDecoration(p, len);
+                        LONG contentLen = len - (LONG)(content - p);
+                        LONG sect;
 
-                        /* Length of the content on this physical line */
-                        contentLen = (LONG)(i - lineStart);
-                        if (contentLen > 0 && buffer[i - 1] == '\r')
-                            contentLen--;
-                        contentLen -= (LONG)(content - p);
-                        if (contentLen < 0)
-                            contentLen = 0;
-                        contentLen = TrimTrailingDecoration(content, contentLen);
+                        if (contentLen > 0)
+                            contentLen = TrimTrailingDecoration(content, contentLen);
 
-                        /* Classify heading lines */
-                        sect = ClassifyHeading(content);
-                        if (sect != AD_SECT_NONE)
-                        {
-                            currentSection = sect;
-                            styleFlags = FS_BOLD;
-                        }
-
-                        /* Allocate a line segment pointing into buffer */
                         if (contentLen > 0)
                         {
+                            ULONG styleFlags = FS_NORMAL;
+
+                            /* Classify heading lines (length-bounded) */
+                            sect = ClassifyHeading(content, contentLen);
+                            if (sect != AD_SECT_NONE)
+                                styleFlags = FS_BOLD;
+
                             line = AllocPooled(data->Pool, sizeof(struct Line));
                             if (line)
                             {
@@ -594,7 +610,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
 
                                 line->ln_Text    = content;
                                 line->ln_TextLen = contentLen;
-                                line->ln_XOffset = offset;
+                                line->ln_XOffset = 0;
                                 line->ln_YOffset = yoffset + font->tf_Baseline;
                                 line->ln_Width   = swidth;
                                 line->ln_Height  = font->tf_YSize;
@@ -604,14 +620,12 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                                 line->ln_Style   = styleFlags;
                                 line->ln_Data    = NULL;
 
-                                linelength = line->ln_Width + line->ln_XOffset;
-                                if (linelength > max_linelength)
-                                    max_linelength = linelength;
+                                if (swidth > max_linelength)
+                                    max_linelength = swidth;
 
                                 AddTail(linelist, (struct Node *)line);
 
                                 yoffset += font->tf_YSize;
-                                offset = 0;
                                 total++;
                             }
                             else
@@ -624,7 +638,6 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                             /* Blank content line inside autodoc */
                             yoffset += font->tf_YSize;
                             total++;
-                            offset = 0;
                         }
                     }
                     else
@@ -639,7 +652,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
 
                                 line->ln_Text    = p;
                                 line->ln_TextLen = len;
-                                line->ln_XOffset = offset;
+                                line->ln_XOffset = 0;
                                 line->ln_YOffset = yoffset + font->tf_Baseline;
                                 line->ln_Width   = swidth;
                                 line->ln_Height  = font->tf_YSize;
@@ -649,14 +662,12 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                                 line->ln_Style   = FS_NORMAL;
                                 line->ln_Data    = NULL;
 
-                                linelength = line->ln_Width + line->ln_XOffset;
-                                if (linelength > max_linelength)
-                                    max_linelength = linelength;
+                                if (swidth > max_linelength)
+                                    max_linelength = swidth;
 
                                 AddTail(linelist, (struct Node *)line);
 
                                 yoffset += font->tf_YSize;
-                                offset = 0;
                                 total++;
                             }
                             else
@@ -672,44 +683,84 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                     }
 
                     lineStart = i + 1;
-                    offset = 0;
 
                     bsig = CheckSignal(SIGBREAKF_CTRL_C);
                 }
 
-                /* Handle any trailing content without a newline */
+                /* Handle any trailing content without a newline. The last
+                 * physical line still needs start/end marker handling. */
                 if (lineStart < (LONG)bufferlen)
                 {
                     len = (LONG)(bufferlen - lineStart);
                     p = &buffer[lineStart];
 
-                    if (inAutodoc)
+                    if (IsAutodocStart(p, len))
                     {
-                        STRPTR content = SkipAutodocDecoration(p);
-                        ULONG sect;
-                        ULONG styleFlags = FS_NORMAL;
+                        STRPTR content = SkipAutodocDecoration(p, len);
+                        LONG titleLen = len - (LONG)(content - p);
+                        if (titleLen < 0)
+                            titleLen = 0;
+                        titleLen = TrimTrailingDecoration(content, titleLen);
 
-                        len -= (LONG)(content - p);
-                        if (len < 0)
-                            len = 0;
-                        len = TrimTrailingDecoration(content, len);
+                        inAutodoc = TRUE;
 
-                        sect = ClassifyHeading(content);
-                        if (sect != AD_SECT_NONE)
-                        {
-                            currentSection = sect;
-                            styleFlags = FS_BOLD;
-                        }
-
-                        if (len > 0)
+                        if (titleLen > 0)
                         {
                             line = AllocPooled(data->Pool, sizeof(struct Line));
                             if (line)
                             {
-                                swidth = TextLength(&trp, content, len);
+                                swidth = TextLength(&trp, content, titleLen);
 
                                 line->ln_Text    = content;
-                                line->ln_TextLen = len;
+                                line->ln_TextLen = titleLen;
+                                line->ln_XOffset = 0;
+                                line->ln_YOffset = yoffset + font->tf_Baseline;
+                                line->ln_Width   = swidth;
+                                line->ln_Height  = font->tf_YSize;
+                                line->ln_Flags   = LNF_LF;
+                                line->ln_FgPen   = fgpen;
+                                line->ln_BgPen   = bgpen;
+                                line->ln_Style   = FS_BOLD;
+                                line->ln_Data    = NULL;
+
+                                if (swidth > max_linelength)
+                                    max_linelength = swidth;
+
+                                AddTail(linelist, (struct Node *)line);
+
+                                yoffset += font->tf_YSize;
+                                total++;
+                            }
+                        }
+                    }
+                    else if (inAutodoc && IsAutodocEnd(p, len))
+                    {
+                        inAutodoc = FALSE;
+                    }
+                    else if (inAutodoc)
+                    {
+                        STRPTR content = SkipAutodocDecoration(p, len);
+                        LONG contentLen = len - (LONG)(content - p);
+                        LONG sect;
+
+                        if (contentLen > 0)
+                            contentLen = TrimTrailingDecoration(content, contentLen);
+
+                        if (contentLen > 0)
+                        {
+                            ULONG styleFlags = FS_NORMAL;
+
+                            sect = ClassifyHeading(content, contentLen);
+                            if (sect != AD_SECT_NONE)
+                                styleFlags = FS_BOLD;
+
+                            line = AllocPooled(data->Pool, sizeof(struct Line));
+                            if (line)
+                            {
+                                swidth = TextLength(&trp, content, contentLen);
+
+                                line->ln_Text    = content;
+                                line->ln_TextLen = contentLen;
                                 line->ln_XOffset = 0;
                                 line->ln_YOffset = yoffset + font->tf_Baseline;
                                 line->ln_Width   = swidth;
@@ -720,35 +771,39 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                                 line->ln_Style   = styleFlags;
                                 line->ln_Data    = NULL;
 
+                                if (swidth > max_linelength)
+                                    max_linelength = swidth;
+
                                 AddTail(linelist, (struct Node *)line);
                                 total++;
                             }
                         }
                     }
-                    else
+                    else if (len > 0)
                     {
-                        if (len > 0)
+                        /* Plain text outside any autodoc */
+                        line = AllocPooled(data->Pool, sizeof(struct Line));
+                        if (line)
                         {
-                            line = AllocPooled(data->Pool, sizeof(struct Line));
-                            if (line)
-                            {
-                                swidth = TextLength(&trp, p, len);
+                            swidth = TextLength(&trp, p, len);
 
-                                line->ln_Text    = p;
-                                line->ln_TextLen = len;
-                                line->ln_XOffset = 0;
-                                line->ln_YOffset = yoffset + font->tf_Baseline;
-                                line->ln_Width   = swidth;
-                                line->ln_Height  = font->tf_YSize;
-                                line->ln_Flags   = LNF_LF;
-                                line->ln_FgPen   = fgpen;
-                                line->ln_BgPen   = bgpen;
-                                line->ln_Style   = FS_NORMAL;
-                                line->ln_Data    = NULL;
+                            line->ln_Text    = p;
+                            line->ln_TextLen = len;
+                            line->ln_XOffset = 0;
+                            line->ln_YOffset = yoffset + font->tf_Baseline;
+                            line->ln_Width   = swidth;
+                            line->ln_Height  = font->tf_YSize;
+                            line->ln_Flags   = LNF_LF;
+                            line->ln_FgPen   = fgpen;
+                            line->ln_BgPen   = bgpen;
+                            line->ln_Style   = FS_NORMAL;
+                            line->ln_Data    = NULL;
 
-                                AddTail(linelist, (struct Node *)line);
-                                total++;
-                            }
+                            if (swidth > max_linelength)
+                                max_linelength = swidth;
+
+                            AddTail(linelist, (struct Node *)line);
+                            total++;
                         }
                     }
                 }
