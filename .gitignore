@@ -1,0 +1,5 @@
+*.o
+*.bak
+*.db
+*.dump
+autodoc.datatype

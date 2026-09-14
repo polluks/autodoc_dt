@@ -1,0 +1,33 @@
+autodoc.datatype  (c) 2026 Amiga Developer
+
+Desc: A MorphOS/AROS/AmigaOS Datatype for viewing Amiga Autodoc
+      documentation files with formatted rendering.
+
+Format: autodoc documentation, per the AmigaOS Autodoc Style Guide.
+        URLs: *.autodoc, *.doc (see DTA_Pattern)
+
+Credits:
+  - AmigaOS Documentation Wiki, "Autodoc Style Guide":
+        https://wiki.amigaos.net/wiki/Autodoc_Style_Guide
+        Copyright (c) Hyperion Entertainment and contributors.
+  - Structure modeled after the AROS ascii.datatype:
+        Copyright (c) 1995-2001, The AROS Development Team.
+        www.morphos-team.net/files/src/3.20/ascii.datatype.tar.bz2
+
+Features:
+  - Renders Autodoc blocks with bold section headings.
+  - Strips "/****** ... ***" block decorations.
+  - Supports internal (/****i* ) and obsolete (/****o* ) markers.
+  - Recognizes NAME, SYNOPSIS, FUNCTION, INPUTS, RESULT, EXAMPLE,
+    NOTES, BUGS, SEE ALSO sections.
+  - Tabulator size honors the TABSIZE environment variable.
+
+Installation:
+  Place autodoc.datatype in SYS:Classes/Datatypes (AmigaOS/AROS) or
+  SYS:MorphOS/classes/datatypes (MorphOS), then either reboot or run:
+      AddDataTypes autodoc.datatype
+  or use the OS-specific datatype flush utility.
+
+Copy/quad note:
+  This is a template datatype implementation. Adapt the header comment
+  to your project and run 'make bump' before release.
