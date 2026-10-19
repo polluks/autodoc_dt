@@ -4,7 +4,8 @@ Desc: A MorphOS/AROS/AmigaOS Datatype for viewing Amiga Autodoc
       documentation files with formatted rendering.
 
 Format: autodoc documentation, per the AmigaOS Autodoc Style Guide.
-        URLs: *.autodoc, *.doc (see DTA_Pattern)
+        Files: *.autodoc, *.doc (mapped by the Autodoc descriptor that
+        make builds and installs to DEVS:DataTypes).
 
 Credits:
   - AmigaOS Documentation Wiki, "Autodoc Style Guide":
@@ -13,6 +14,9 @@ Credits:
   - Structure modeled after the AROS ascii.datatype:
         Copyright (c) 1995-2001, The AROS Development Team.
         www.morphos-team.net/files/src/3.20/ascii.datatype.tar.bz2
+  - See also markdown.datatype (creep-ltx's AmigaDatatypes), the
+        descriptor tool here (tools/mkdesc.py) is adapted from it, MIT:
+        https://github.com/creep-ltx/AmigaDatatypes
 
 Features:
   - Renders Autodoc blocks with bold section headings.
@@ -25,8 +29,11 @@ Features:
 
 Installation:
   Place autodoc.datatype in SYS:Classes/Datatypes (AmigaOS/AROS) or
-  SYS:MorphOS/classes/datatypes (MorphOS), then either reboot or run:
+  SYS:MorphOS/classes/datatypes (MorphOS), and the Autodoc descriptor
+  in DEVS:DataTypes ('make install' does both copies), then either
+  reboot or run:
       AddDataTypes autodoc.datatype
+      AddDataTypes REFRESH
   or use the OS-specific datatype flush utility.
 
 Copy/quad note:
