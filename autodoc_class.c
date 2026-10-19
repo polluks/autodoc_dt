@@ -50,6 +50,8 @@
 #include <proto/graphics.h>
 #include <proto/utility.h>
 #include <proto/datatypes.h>
+#include <aros/libcall.h>
+#include <aros/asmcall.h>
 
 #include "autodoc_intern.h"
 
@@ -362,7 +364,11 @@ static IPTR Autodoc_Dispose(Class *cl, Object *o, Msg msg)
     if (GetDTAttrs(o, TDTA_LineList, (IPTR)&linelist, TAG_DONE) && linelist)
         NewList(linelist);
 
-    DeletePool(data->Pool);
+    if (data->Pool)
+    {
+        DeletePool(data->Pool);
+        data->Pool = NULL;
+    }
 
     retval = DoSuperMethodA(cl, o, msg);
 
@@ -477,7 +483,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
     STRPTR p;
 
     {
-        TEXT tmpbuf[3];
+        char tmpbuf[3];
 
         if (GetVar("TABSIZE", tmpbuf, sizeof(tmpbuf), 0) > 0)
         {
@@ -491,7 +497,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                    DTA_Domain, (IPTR)&domain, DTA_ObjName, (IPTR)&title,
                    TDTA_Buffer, (IPTR)&buffer, TDTA_BufferLen, (IPTR)&bufferlen,
                    TDTA_LineList, (IPTR)&linelist, TDTA_WordWrap, (IPTR)&wrap,
-                   TAG_DONE) == 8)
+                   TAG_DONE) == 8 && font && domain && linelist)
     {
         ObtainSemaphore(&(si->si_Lock));
 
@@ -555,7 +561,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                                 line->ln_Flags   = LNF_LF;
                                 line->ln_FgPen   = fgpen;
                                 line->ln_BgPen   = bgpen;
-                                line->ln_Style   = FS_BOLD;
+                                line->ln_Style   = FSF_BOLD;
                                 line->ln_Data    = NULL;
 
                                 if (swidth > max_linelength)
@@ -601,7 +607,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                             /* Classify heading lines (length-bounded) */
                             sect = ClassifyHeading(content, contentLen);
                             if (sect != AD_SECT_NONE)
-                                styleFlags = FS_BOLD;
+                                styleFlags = FSF_BOLD;
 
                             line = AllocPooled(data->Pool, sizeof(struct Line));
                             if (line)
@@ -720,7 +726,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                                 line->ln_Flags   = LNF_LF;
                                 line->ln_FgPen   = fgpen;
                                 line->ln_BgPen   = bgpen;
-                                line->ln_Style   = FS_BOLD;
+                                line->ln_Style   = FSF_BOLD;
                                 line->ln_Data    = NULL;
 
                                 if (swidth > max_linelength)
@@ -752,7 +758,7 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
 
                             sect = ClassifyHeading(content, contentLen);
                             if (sect != AD_SECT_NONE)
-                                styleFlags = FS_BOLD;
+                                styleFlags = FSF_BOLD;
 
                             line = AllocPooled(data->Pool, sizeof(struct Line));
                             if (line)
@@ -819,13 +825,15 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
 #endif
         }
 
-        si->si_VertUnit = font->tf_YSize;
+        si->si_VertUnit = font->tf_YSize ? font->tf_YSize : 1;
         si->si_VisVert  = visible = domain->Height / si->si_VertUnit;
         si->si_TotVert  = total;
 
-        si->si_HorizUnit = font->tf_XSize;
+        si->si_HorizUnit = font->tf_XSize ? font->tf_XSize : 8;
         si->si_VisHoriz  = domain->Width / si->si_HorizUnit;
-        si->si_TotHoriz  = max_linelength / si->si_HorizUnit;
+        /* Round up: the scrollbar must reach the last pixel column of a
+         * line that is not a whole number of characters wide. */
+        si->si_TotHoriz  = (max_linelength + si->si_HorizUnit - 1) / si->si_HorizUnit;
 
         ReleaseSemaphore(&si->si_Lock);
 
@@ -835,9 +843,9 @@ static IPTR Autodoc_AsyncLayout(Class *cl, Object *o, struct gpLayout *gpl)
                               DTA_VisibleVert, visible,
                               DTA_TotalVert, total,
                               DTA_NominalVert, nomheight,
-                              DTA_VertUnit, font->tf_YSize,
-                              DTA_VisibleHoriz, (domain->Width / si->si_HorizUnit),
-                              DTA_TotalHoriz, max_linelength / si->si_HorizUnit,
+                              DTA_VertUnit, si->si_VertUnit,
+                              DTA_VisibleHoriz, si->si_VisHoriz,
+                              DTA_TotalHoriz, si->si_TotHoriz,
                               DTA_NominalHoriz, nomwidth,
                               DTA_HorizUnit, si->si_HorizUnit,
                               DTA_TopHoriz, si->si_TopHoriz,

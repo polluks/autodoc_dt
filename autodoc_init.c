@@ -6,6 +6,7 @@
 #include <exec/types.h>
 #include <exec/resident.h>
 #include <proto/exec.h>
+#include <aros/libcall.h>
 #include <utility/utility.h>
 
 #ifdef __MORPHOS__
@@ -16,6 +17,7 @@
 #include "initstruct.h"
 #include "autodoc_intern.h"
 #include "libdefs.h"
+#include <aros/asmcall.h>
 #include <clib/alib_protos.h>
 
 #include "autodoc.datatype_VERSION.h"

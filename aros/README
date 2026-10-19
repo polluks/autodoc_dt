@@ -1,0 +1,10 @@
+Compatibility headers (aros/, (C) 1995-2005 The AROS Development Team)
+
+Verbatim copies of the aros/ include directory as shipped with the
+MorphOS ascii.datatype source release
+(www.morphos-team.net/files/src/3.20/ascii.datatype.tar.bz2).  They
+provide the AROS_*FH/LH/libcall macros that the MorphOS build of a
+datatype class uses in its dispatcher; the class is compiled with -I.
+so <aros/...> resolves right here, exactly like ascii.datatype does.
+
+Do not edit these - they track the ascii.datatype release.

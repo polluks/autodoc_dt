@@ -8,7 +8,6 @@
 #include <proto/dos.h>
 #include <proto/utility.h>
 #include <proto/datatypes.h>
-#include <proto/gadtools.h>
 #include "compilerspecific.h"
 #include "autodoc_intern.h"
 #include "libdefs.h"
@@ -30,7 +29,6 @@ struct Library          *UtilityBase;
 #endif
 struct DosLibrary       *DOSBase;
 struct Library          *DataTypesBase;
-struct GadtoolsBase     *GadToolsBase;
 
 /* inside autodoc_class.c */
 struct IClass *DT_MakeClass(LIBBASETYPEPTR LIBBASE);
@@ -59,16 +57,11 @@ ASM SAVEDS int __UserLibInit(register __a6 LIBBASETYPEPTR LIBBASE)
                     if ((UtilityBase = (struct Library *)OpenLibrary("utility.library", 37)))
 #endif
                     {
-                        if ((GadToolsBase = (struct GadtoolsBase *)OpenLibrary("gadtools.library", 37)))
+                        if ((LIBBASE->class = DT_MakeClass(LIBBASE)))
                         {
-                            if ((LIBBASE->class = DT_MakeClass(LIBBASE)))
-                            {
-                                AddClass(LIBBASE->class);
+                            AddClass(LIBBASE->class);
 
-                                return 0;
-                            }
-                            CloseLibrary((struct Library *)GadToolsBase);
-                            GadToolsBase = NULL;
+                            return 0;
                         }
                     }
                 }
@@ -94,7 +87,6 @@ ASM SAVEDS void __UserLibCleanup(register __a6 LIBBASETYPEPTR LIBBASE)
         LIBBASE->class = NULL;
     }
 
-    if (GadToolsBase)  CloseLibrary((struct Library *)GadToolsBase);
     if (UtilityBase)   CloseLibrary((struct Library *)UtilityBase);
     if (DOSBase)       CloseLibrary((struct Library *)DOSBase);
     if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
